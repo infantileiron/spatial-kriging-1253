@@ -2,9 +2,10 @@ import json
 import numpy as np
 from sqlalchemy import select,func
 from src.config.database import initialize,Session
-from src.models import SpatialDataset,SamplingPoint,VariogramSpec,KrigingStudy,QueryPoint,KrigingRun,FieldReview,Report,User
+from src.models import SpatialDataset,SamplingPoint,VariogramSpec,KrigingStudy,QueryPoint,KrigingRun,FieldReview,Report,User,SupplementPlan
 from src.utils.security import hash_password
 from src.services.run_service import compute
+from src.services.supplement_service import build_supplement_plan
 
 def make_points():
  coordinates=np.array([(float(x),float(y)) for x in [0,12,24,36,58,90,125,150] for y in [0,15,30,45,70,95,120,150]],dtype=np.float64)
@@ -33,9 +34,20 @@ def seed():
    if not db.get(QueryPoint,ident):db.add(QueryPoint(id=ident,study_id="demo-study",**q))
   db.commit()
   if not db.get(KrigingRun,"demo-run"):db.add(KrigingRun(id="demo-run",study_id="demo-study",status="queued",result={},error=""));db.commit();compute(db,"demo-run")
+  if not db.get(SupplementPlan,"demo-supplement-plan"):
+   run=db.get(KrigingRun,"demo-run");model=run.result["model"];config=run.result["config"]
+   candidates=[{"candidate_id":f"NZ-R{i+1:02}","x":float(70+(i%6)*16),"y":float(20+(i//6)*22)} for i in range(36)]
+   plan=build_supplement_plan(run.result["points"],run.result["queries"],model["sill"],model["range"],model["nugget"],
+                              candidates,budget=5,min_spacing=8.0,batch_size=2000,
+                              condition_limit=config["condition_limit"],negative_tolerance=config["negative_tolerance"])
+   db.add(SupplementPlan(id="demo-supplement-plan",run_id="demo-run",budget=5,min_spacing=8.0,
+     candidate_count=plan["candidate_count"],selected_count=len(plan["steps"]),
+     baseline_mean_variance=plan["baseline_mean_variance"],final_mean_variance=plan["final_mean_variance"],
+     total_variance_reduction=plan["total_variance_reduction"],peak_memory_bytes=plan["peak_memory_bytes"],
+     batch_size=2000,stop_reason=plan["stop_reason"],plan=plan));db.commit()
   if not db.get(FieldReview,"demo-review"):db.add(FieldReview(id="demo-review",run_id="demo-run",action="核对稀疏区与边缘查询的空间方差及变异函数边界；参数和预测锁定，空间随机场方差不当作真实误差。",state="approved",reviewer="admin@spatial.demo"))
   db.commit()
   if not db.get(Report,"demo-report"):db.add(Report(id="demo-report",review_id="demo-review",title="宁泽地块含水空间推断底稿",snapshot={"result":db.get(KrigingRun,"demo-run").result,"action":db.get(FieldReview,"demo-review").action,"reviewer":"admin@spatial.demo"}))
   db.commit()
-  return {cls.__tablename__:db.scalar(select(func.count()).select_from(cls)) for cls in [User,SpatialDataset,SamplingPoint,VariogramSpec,KrigingStudy,QueryPoint,KrigingRun,FieldReview,Report]}
+  return {cls.__tablename__:db.scalar(select(func.count()).select_from(cls)) for cls in [User,SpatialDataset,SamplingPoint,VariogramSpec,KrigingStudy,QueryPoint,KrigingRun,SupplementPlan,FieldReview,Report]}
 if __name__=="__main__":print(json.dumps(seed(),ensure_ascii=False))

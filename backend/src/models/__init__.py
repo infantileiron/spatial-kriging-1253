@@ -10,5 +10,6 @@ from .prediction import Prediction
 from .kriging_weight import KrigingWeight
 from .variogram_bin import VariogramBin
 from .curve_point import CurvePoint
+from .supplement_plan import SupplementPlan
 from .user import User
 from .audit import Audit
